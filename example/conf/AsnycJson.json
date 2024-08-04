@@ -1,0 +1,14 @@
+{
+    "LOG_CONFIGS": [
+        "LOG_CONFIG1"
+    ],
+    
+    "LOG_CONFIG1": {
+        "LOG_TYPE":"Async",
+        "LOG_LEVEL":"DEBUG",
+        "LOG_FORMAT":"DEBULT",
+        "LOG_TARGET":"test1.log",
+        "LOG_ENCODING":"UTF-8",
+        "BUFFER_SIZE": 64 
+    }
+}
