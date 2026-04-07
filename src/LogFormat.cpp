@@ -5,6 +5,10 @@
 
 #include <thread>
 #include <functional>
+#include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
 
 namespace GST{
 namespace LOG{
@@ -64,16 +68,27 @@ bool LogFormat::format(LOG_LEVEL level, std::string& log, const char* file,
     return true;
 }
 
-std::string LogFormat::get_filepath(std::string&& file_path) {
+std::string LogFormat::get_filepath(std::string_view file_path) {
     auto index = file_path.find_last_of("/\\");
-    if (index == std::string::npos) {
-        return std::move(file_path);
+    if (index == std::string_view::npos) {
+        return std::string(file_path);
     }
-    return file_path.substr(index + 1);
+    return std::string(file_path.substr(index + 1));
 }
 
 std::string LogFormat::get_curtime() {
-    return "";
+    auto now = std::chrono::system_clock::now();
+    auto now_time_t = std::chrono::system_clock::to_time_t(now);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now.time_since_epoch()) % 1000;
+
+    std::tm tm_now{};
+    localtime_r(&now_time_t, &tm_now);
+
+    std::ostringstream oss;
+    oss << std::put_time(&tm_now, "%Y-%m-%d %H:%M:%S")
+        << "." << std::setw(3) << std::setfill('0') << ms.count();
+    return oss.str();
 }
 
 std::string LogFormat::get_loglevelstr(GST::LOG::LOG_LEVEL level) {

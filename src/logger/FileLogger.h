@@ -8,7 +8,7 @@ class FileLogger : public Logger
 {
 public:
     FileLogger() = default;
-    ~FileLogger() override {};
+    ~FileLogger() override;
 
     bool write_log(const buffer& log);
 
@@ -16,7 +16,7 @@ public:
 
 private:
     
-    int _fd_file;
+    int _fd_file{-1};
 };
 
 }

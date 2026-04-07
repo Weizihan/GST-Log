@@ -3,8 +3,9 @@
 #include <iostream>
 #include <fstream>
 #include <cstdarg>
-#include <string.h>
 #include <memory>
+#include <vector>
+#include <cstdio>
 
 #include "logger/AsyncFileLogger.h"
 #include "logger/FileLogger.h"
@@ -14,9 +15,13 @@
 
 using namespace GST::LOG;
 
-std::shared_ptr<GST::LOG::GstLogger> GstLogger::_instances = nullptr;
-
 GstLogger::GstLogger() {
+    _is_start = false;
+}
+
+std::shared_ptr<GST::LOG::GstLogger> GstLogger::get_Instance() {
+    static std::shared_ptr<GstLogger> instance(new GstLogger());
+    return instance;
 }
 
 LOG_LEVEL string_to_log_level(const std::string& level) {
@@ -30,51 +35,66 @@ LOG_LEVEL string_to_log_level(const std::string& level) {
 
 void GstLogger::log(int index, LOG_LEVEL level, const char* file,
                     int line, const char* func, const std::string& format, ...) {
-    va_list args;
-    va_start(args, format);
-    char buffer[256] = {0};
-    int size = std::vsnprintf(buffer, 256, format.c_str(), args);
-    if(size < 0) {
-        return;
+    std::vector<Logger*> loggers;
+    {
+        std::lock_guard<std::mutex> lock(_loggers_mutex);
+        if (_Logger_ptrs.empty()) {
+            return;
+        }
+
+        if (index < 0 || static_cast<size_t>(index) >= _Logger_ptrs.size()) {
+            loggers.reserve(_Logger_ptrs.size());
+            for (auto& ptr : _Logger_ptrs) {
+                loggers.push_back(ptr.get());
+            }
+        } else {
+            loggers.push_back(_Logger_ptrs.at(index).get());
+        }
     }
 
-    buffer[sizeof(buffer) - 1] = '\0';
+    va_list args;
+    va_start(args, format);
+    va_list args_copy;
+    va_copy(args_copy, args);
+    int size = std::vsnprintf(nullptr, 0, format.c_str(), args_copy);
+    va_end(args_copy);
+    if(size < 0) {
+        va_end(args);
+        return;
+    }
+    std::string msg(static_cast<size_t>(size), '\0');
+    std::vsnprintf(msg.data(), static_cast<size_t>(size) + 1, format.c_str(), args);
     va_end(args);
-    std::string msg = std::string(buffer);
-    if (index == -1 || index > _Logger_ptrs.size()) {
-        for(const auto& logger_ptr : _Logger_ptrs) {
+
+    for (auto* logger_ptr : loggers) {
+        if (logger_ptr != nullptr) {
             logger_ptr->log(level, msg, file, line, func);
         }
-    } else {
-        _Logger_ptrs.at(index)->log(level, msg, file, line, func);
     }
 }
 
 void GstLogger::log(const std::string& name, LOG_LEVEL level, const char* file,
                     int line, const char* func, const std::string& format, ...) {
-    int index = GstLogger::get_Instance()->get_logger_index_by_name(name);
+    int index = get_logger_index_by_name(name);
     va_list args;
     va_start(args, format);
-    char buffer[256] = {0};
-    int size = std::vsnprintf(buffer, 256, format.c_str(), args);
+    va_list args_copy;
+    va_copy(args_copy, args);
+    int size = std::vsnprintf(nullptr, 0, format.c_str(), args_copy);
+    va_end(args_copy);
     if(size < 0) {
+        va_end(args);
         return;
     }
-
-    buffer[sizeof(buffer) - 1] = '\0';
+    std::string msg(static_cast<size_t>(size), '\0');
+    std::vsnprintf(msg.data(), static_cast<size_t>(size) + 1, format.c_str(), args);
     va_end(args);
-    std::string msg = std::string(buffer);
-    if (index == -1 || index > _Logger_ptrs.size()) {
-        for(const auto& logger_ptr : _Logger_ptrs) {
-            logger_ptr->log(level, msg, file, line, func);
-        }
-    } else {
-        _Logger_ptrs.at(index)->log(level, msg, file, line, func);
-    }
+    log(index, level, file, line, func, "%s", msg.c_str());
 }
 
 int GstLogger::get_logger_index_by_name(const std::string& name) {
-    for(int i = 0; i < _Logger_ptrs.size() ; i++) {
+    std::lock_guard<std::mutex> lock(_loggers_mutex);
+    for(int i = 0; i < static_cast<int>(_Logger_ptrs.size()) ; i++) {
         if(name == _Logger_ptrs.at(i)->get_name()) {
             return i;
         }
@@ -95,11 +115,19 @@ bool GstLogger::init(const LogConfig& config) {
         return false;
     }
 
-    return logger_ptr ? logger_ptr->init(config) : false;
+    if (!logger_ptr || !logger_ptr->init(config)) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(_loggers_mutex);
+    _Logger_ptrs.emplace_back(std::move(logger_ptr));
+    _is_start = true;
+    return true;
 }
 
 // 无参数调用， 使用默认的配置
 bool GstLogger::init() {
+    std::lock_guard<std::mutex> lock(_loggers_mutex);
     if(_is_start) {
         return false;
     }
@@ -117,6 +145,7 @@ bool GstLogger::init() {
     default_log._is_colorful_log = true;
     default_logger_ptr->init(default_log);
     _Logger_ptrs.emplace_back(std::move(default_logger_ptr));
+    _is_start = true;
 
     return true;
 }

@@ -21,6 +21,18 @@ namespace LOG {
 AsyncFileLogger::AsyncFileLogger(){
 }
 
+AsyncFileLogger::~AsyncFileLogger() {
+    _begin = false;
+    _cv.notify_all();
+    if (_write_worker.joinable()) {
+        _write_worker.join();
+    }
+    if (_fd_file >= 0) {
+        close(_fd_file);
+        _fd_file = -1;
+    }
+}
+
 bool AsyncFileLogger::init(const GST::LOG::LogConfig& config) {
 
     _fd_file = open(config._log_target.c_str(),  O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -44,15 +56,25 @@ bool AsyncFileLogger::init(const GST::LOG::LogConfig& config) {
 
 //专门用来管理双缓冲的线程
 void AsyncFileLogger::thread_func(){
-    int wrtie_size = 0;
-    buffervecptr tmp_buffers = std::make_unique<std::vector<buffer>>();;
+    buffervecptr tmp_buffers = std::make_unique<std::vector<buffer>>();
     tmp_buffers->reserve(1024*64);
-    while (_begin)
-    {
+    while (_begin) {
         {
-            std::unique_lock<std::mutex> _lock(_buffer_mutex);
-            if(_current_buffer->empty()){
-                _cv.wait_for(_lock,std::chrono::seconds(4));//固定时间交换
+            std::unique_lock<std::mutex> lock(_buffer_mutex);
+            if (_current_buffer->empty()) {
+                _cv.wait_for(lock, std::chrono::seconds(1), [this] {
+                    return !_begin || !_current_buffer->empty();
+                });
+            }
+            if (!_current_buffer->empty()) {
+                _buffers->emplace_back(std::move(*_current_buffer));
+                if (_next_buffer == nullptr) {
+                    _next_buffer = std::make_unique<buffer>();
+                    _next_buffer->reserve(64 * 1024);
+                }
+                _current_buffer = std::move(_next_buffer);
+                _next_buffer = std::make_unique<buffer>();
+                _next_buffer->reserve(64 * 1024);
             }
             tmp_buffers.swap(_buffers);
         }
@@ -65,8 +87,12 @@ void AsyncFileLogger::thread_func(){
             }
         }
 
-        int ret = write(_fd_file, write_to_file.c_str(), write_to_file.size());
-        if(ret == -1) {
+        if (write_to_file.empty()) {
+            continue;
+        }
+
+        ssize_t ret = write(_fd_file, write_to_file.c_str(), write_to_file.size());
+        if(ret < 0) {
             std::cerr << "write into file failed" << std::endl;
         }
         std::vector<buffer>().swap(*tmp_buffers);
@@ -92,6 +118,10 @@ bool AsyncFileLogger::write_log(const buffer& log) {
     // no enough buffer to wirte
     if(_current_buffer->capacity() - _current_buffer->size() < log.size() ) {
         _buffers->emplace_back(std::move(*_current_buffer));
+        if (_next_buffer == nullptr) {
+            _next_buffer = std::make_unique<buffer>();
+            _next_buffer->reserve(64 * 1024);
+        }
         _current_buffer = std::move(_next_buffer);
         _next_buffer = std::make_unique<buffer>();
         _next_buffer.get()->reserve(64*1024);

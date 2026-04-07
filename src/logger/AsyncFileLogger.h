@@ -11,13 +11,7 @@ namespace LOG {
 class AsyncFileLogger : public Logger{
 public:
     AsyncFileLogger();
-    ~AsyncFileLogger() override{
-        _begin = false;
-        _cv.notify_all();
-        if (_write_worker.joinable()) {
-            _write_worker.join();
-        }
-    };
+    ~AsyncFileLogger() override;
     bool init(const LogConfig& config) override;
 
     bool write_log(const buffer& log) override;
@@ -26,7 +20,7 @@ private:
 
     bool file_trunc();
     
-    int _fd_file;
+    int _fd_file{-1};
 
     std::thread _write_worker;
     std::condition_variable _cv;

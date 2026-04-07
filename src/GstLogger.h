@@ -3,6 +3,7 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <mutex>
 
 #include "logger/Logger.h"
 #include "LogConfig.h"
@@ -12,12 +13,9 @@ namespace LOG{
     
 class GstLogger {
 public:
-    static std::shared_ptr<GST::LOG::GstLogger> get_Instance() {
-        if(_instances == nullptr){
-            _instances = std::shared_ptr<GstLogger>(new GstLogger(), Deleter());
-        }
-        return _instances;
-    }
+    ~GstLogger() = default;
+
+    static std::shared_ptr<GST::LOG::GstLogger> get_Instance();
 
     bool init();
     bool init(const LogConfig& config);
@@ -30,20 +28,12 @@ public:
     bool delete_logger();
 private:
     GstLogger();
-    ~GstLogger() = default;
     GstLogger(const GstLogger&) = delete;
     GstLogger(const GstLogger&&) = delete;
     GstLogger& operator=(const GstLogger&) = delete;
-    class Deleter {
-    public:
-        void operator()(GstLogger* p) {
-            delete p;
-        }
-    };
-
     int get_logger_index_by_name(const std::string& name);
     std::vector<std::unique_ptr<GST::LOG::Logger>> _Logger_ptrs;
-    static std::shared_ptr<GST::LOG::GstLogger> _instances;
+    mutable std::mutex _loggers_mutex;
     bool _is_start;
 
 };

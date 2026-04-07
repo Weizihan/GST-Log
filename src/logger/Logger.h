@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 #include <iostream>
+#include <atomic>
 
 #include "LogConfig.h"
 #include "Marco.h"
@@ -55,7 +56,7 @@ protected:
     LOG_TRUNC_TYPE _trunc_type;
     int _trunc_threshold;
 
-    bool _begin = false;
+    std::atomic<bool> _begin{false};
 };
 
 }

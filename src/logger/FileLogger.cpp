@@ -7,8 +7,16 @@
 namespace GST {
 namespace LOG {
 
+FileLogger::~FileLogger() {
+    _begin = false;
+    if (_fd_file >= 0) {
+        close(_fd_file);
+        _fd_file = -1;
+    }
+}
+
 bool FileLogger::init(const LogConfig& config) {
-    std::cout << "init" << std::endl;
+    _fd_file = -1;
     _fd_file = open(config._log_target.c_str(),  O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if(_fd_file < 0) {
         std::cerr << "open file file path fialed " << std::endl;
@@ -22,8 +30,8 @@ bool FileLogger::init(const LogConfig& config) {
 }
 
 bool FileLogger::write_log(const buffer& log) {
-    int ret = write(_fd_file,log.c_str(),log.size());
-    if(ret != 0) {
+    ssize_t ret = write(_fd_file, log.c_str(), log.size());
+    if(ret < 0 || static_cast<size_t>(ret) != log.size()) {
         return false;
     }
     return true;

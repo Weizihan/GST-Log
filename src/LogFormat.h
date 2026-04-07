@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <string_view>
 #include "Marco.h"
 
 namespace GST{
@@ -22,7 +23,7 @@ public:
     bool format(LOG_LEVEL level, std::string& log, const char* file,
                 int line, const char* func);
 private:
-    std::string get_filepath(std::string&& file_path);
+    std::string get_filepath(std::string_view file_path);
     std::string get_curtime();
     std::string get_loglevelstr(GST::LOG::LOG_LEVEL level);
     unsigned long int get_thread_id();

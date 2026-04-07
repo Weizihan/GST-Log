@@ -3,8 +3,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "LogConfig.h"
-
 #if __cplusplus < 201402L
 namespace std {
     template <typename T, typename... Args>
@@ -25,12 +23,12 @@ namespace std {
 namespace GST {
 namespace LOG {
 
-enum LOG_LEVEL{
-    LEVEL_INFO = 0x01,
-    LEVEL_WARN = 0x02,
-    LEVEL_ERROR = 0x04,
-    LEVEL_FATAL = 0x08,
-    LEVEL_DEBUG = 0x10
+enum class LOG_LEVEL {
+    LEVEL_DEBUG = 0,
+    LEVEL_INFO = 1,
+    LEVEL_WARN = 2,
+    LEVEL_ERROR = 3,
+    LEVEL_FATAL = 4
 };
 
 // 文件分割方式
