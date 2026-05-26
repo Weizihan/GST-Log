@@ -6,14 +6,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/output)
 
-# 头文件目录
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/logger
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
 # 源文件
 file(GLOB GST_LOG_SRC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/logger/*.cpp"
@@ -23,6 +15,14 @@ file(GLOB GST_LOG_SRC
 
 # 创建静态库
 add_library(Tlog STATIC ${GST_LOG_SRC})
+
+# PUBLIC：下游 target_link_libraries(Tlog) 时自动继承这些 include 路径
+target_include_directories(Tlog PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/logger>
+)
+
 find_package(Threads REQUIRED)
 target_link_libraries(Tlog PUBLIC Threads::Threads)
 

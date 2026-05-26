@@ -14,6 +14,7 @@ public:
     bool init(const GST::LOG::LogConfig& config) override; 
 
     bool write_log(const buffer& log) override;
+    bool trunc_log() override { return true; }
 
     virtual void log(LOG_LEVEL level, std::string& log, const char* file,
                 int line, const char* func) override;

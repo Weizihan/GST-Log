@@ -62,13 +62,15 @@ void GstLogger::log(int index, LOG_LEVEL level, const char* file,
         va_end(args);
         return;
     }
-    std::string msg(static_cast<size_t>(size), '\0');
+    std::string msg;
+    msg.resize(static_cast<size_t>(size));
     std::vsnprintf(msg.data(), static_cast<size_t>(size) + 1, format.c_str(), args);
     va_end(args);
 
     for (auto* logger_ptr : loggers) {
         if (logger_ptr != nullptr) {
-            logger_ptr->log(level, msg, file, line, func);
+            std::string msg_copy = msg;
+            logger_ptr->log(level, msg_copy, file, line, func);
         }
     }
 }
@@ -76,6 +78,9 @@ void GstLogger::log(int index, LOG_LEVEL level, const char* file,
 void GstLogger::log(const std::string& name, LOG_LEVEL level, const char* file,
                     int line, const char* func, const std::string& format, ...) {
     int index = get_logger_index_by_name(name);
+    if (index < 0) {
+        return;
+    }
     va_list args;
     va_start(args, format);
     va_list args_copy;
@@ -86,7 +91,8 @@ void GstLogger::log(const std::string& name, LOG_LEVEL level, const char* file,
         va_end(args);
         return;
     }
-    std::string msg(static_cast<size_t>(size), '\0');
+    std::string msg;
+    msg.resize(static_cast<size_t>(size));
     std::vsnprintf(msg.data(), static_cast<size_t>(size) + 1, format.c_str(), args);
     va_end(args);
     log(index, level, file, line, func, "%s", msg.c_str());
@@ -120,6 +126,11 @@ bool GstLogger::init(const LogConfig& config) {
     }
 
     std::lock_guard<std::mutex> lock(_loggers_mutex);
+    for (const auto& existing : _Logger_ptrs) {
+        if (existing && existing->get_name() == config._logger_name) {
+            return false;
+        }
+    }
     _Logger_ptrs.emplace_back(std::move(logger_ptr));
     _is_start = true;
     return true;
@@ -134,7 +145,7 @@ bool GstLogger::init() {
     std::unique_ptr<Logger> default_logger_ptr = std::make_unique<ConsoleLogger>();
     LogConfig default_log;
     default_log._logger_name = "log";
-    default_log._log_level = LOG_LEVEL::LEVEL_FATAL;
+    default_log._log_level = LOG_LEVEL::LEVEL_DEBUG;
     default_log._log_format = "[%L][%T%R/%F%I]:%S";
     default_log._log_target = "";
     default_log._log_encoding = "UTF-8";

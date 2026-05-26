@@ -50,9 +50,12 @@ bool LogFormat::format(LOG_LEVEL level, std::string& log, const char* file,
                         log.append(" ");
                         break;
                     case '%':
-                        log.append(" ");
-                        log += "%";
-
+                        log.append("%");
+                        break;
+                    default:
+                        log.push_back('%');
+                        log.push_back(_pattern[pos + 1]);
+                        break;
                 }
                 pos += 2;
             } else {

@@ -25,16 +25,15 @@ struct LogConfig {
 
     std::string _log_file_name = "log";
 
-    bool _trunback_type = 1;
+    bool _trunback_type = true;
 
+    int _log_max_size = 0;
 
-    int _log_max_size;
-    
     //AsyncLog
     int _buffer_size = 64 * 1024;
-    
+
     //ConsoleLog
-    bool _is_colorful_log;
+    bool _is_colorful_log = false;
 
     virtual ~LogConfig() = default;
 

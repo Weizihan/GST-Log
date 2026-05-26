@@ -1,5 +1,8 @@
 #pragma once
 
+#include <filesystem>
+#include <fstream>
+
 #include "Logger.h"
 namespace GST{
 namespace LOG{
@@ -10,13 +13,17 @@ public:
     FileLogger() = default;
     ~FileLogger() override;
 
-    bool write_log(const buffer& log);
+    bool write_log(const buffer& log) override;
+    bool trunc_log() override;
 
     bool init(const LogConfig& config) override;
 
 private:
-    
-    int _fd_file{-1};
+    bool rotate_file();
+
+    std::filesystem::path _log_path;
+    std::ofstream _log_stream;
+    std::string _current_date;  // for TRUNC_TYPE_SYS_TIME
 };
 
 }

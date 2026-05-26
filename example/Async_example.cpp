@@ -58,9 +58,9 @@ int main(int argc, char** argv) {
     //   ./example_Async file         (sync file logger)
     //   ./example_Async async
     const std::string mode = (argc > 1) ? argv[1] : "async";
-    const uint32_t thread_num = 8;
+    const uint32_t thread_num = 50;
     const uint64_t log_count_per_thread = 150000;
-    const std::string payload(64, 'X');
+    const std::string payload(1024, 'X');
     const std::string log_path = (mode == "file")
         ? "output/file_bench.log"
         : "output/async_bench.log";

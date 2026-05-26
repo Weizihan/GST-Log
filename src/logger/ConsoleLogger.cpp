@@ -19,18 +19,7 @@ bool ConsoleLogger::write_log(const buffer& log) {
 
 void ConsoleLogger::log(LOG_LEVEL level, std::string& log, const char* file,
                 int line, const char* func) {
-        if(!_begin) {
-            return;
-        }
-        if(level > _level) {
-            return;
-        }
-        if(_format.format(level, log, file, line, func)) {
-            if(_is_colorful_log) {
-                level_to_color(level, log);
-            }
             write_log(log);
-        }
         return;
 }
 
