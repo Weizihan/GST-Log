@@ -70,7 +70,10 @@ int main(int argc, char** argv) {
     std::filesystem::remove(log_path, ec);
 
     GST::LOG::LogConfig cfg;
-    cfg._logger_name = (mode == "file") ? "File" : "Async";
+    cfg._logger_name = "benchmark";
+    cfg._logger_type = (mode == "file")
+        ? GST::LOG::LoggerType::File
+        : GST::LOG::LoggerType::AsyncFile;
     cfg._log_level = GST::LOG::LOG_LEVEL::LEVEL_INFO;
     cfg._log_format = "%S"; // keep one-line format for predictable size
     cfg._log_target = log_path;

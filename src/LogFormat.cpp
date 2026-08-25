@@ -6,9 +6,8 @@
 #include <thread>
 #include <functional>
 #include <chrono>
+#include <cstdio>
 #include <ctime>
-#include <iomanip>
-#include <sstream>
 
 namespace GST{
 namespace LOG{
@@ -88,10 +87,15 @@ std::string LogFormat::get_curtime() {
     std::tm tm_now{};
     localtime_r(&now_time_t, &tm_now);
 
-    std::ostringstream oss;
-    oss << std::put_time(&tm_now, "%Y-%m-%d %H:%M:%S")
-        << "." << std::setw(3) << std::setfill('0') << ms.count();
-    return oss.str();
+    char timestamp[24]{};
+    const std::size_t date_length =
+        std::strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &tm_now);
+    if (date_length == 0) {
+        return {};
+    }
+    std::snprintf(timestamp + date_length, sizeof(timestamp) - date_length,
+                  ".%03lld", static_cast<long long>(ms.count()));
+    return timestamp;
 }
 
 std::string LogFormat::get_loglevelstr(GST::LOG::LOG_LEVEL level) {
