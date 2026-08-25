@@ -4,6 +4,7 @@
 #include <memory>
 #include <iostream>
 #include <atomic>
+#include <chrono>
 
 #include "LogConfig.h"
 #include "Marco.h"
@@ -30,6 +31,16 @@ public:
     
     virtual bool trunc_log() = 0;
 
+    // Flushes every log accepted before the call's synchronization boundary.
+    // This only flushes userspace stream buffers to the operating system; it
+    // does not provide fsync-style power-loss durability.
+    virtual bool flush(std::chrono::milliseconds timeout) = 0;
+
+    // Stops accepting logs, drains every already accepted log, and releases
+    // backend resources. A timeout leaves the logger in Stopping so shutdown
+    // can be retried.
+    virtual bool shutdown(std::chrono::milliseconds timeout) = 0;
+
     virtual void log(LOG_LEVEL level, std::string& log, const char* file,
                 int line, const char* func) {
         if(!_begin) {
@@ -39,8 +50,9 @@ public:
             return;
         }
         if(_format.format(level, log, file, line, func)) {
-            trunc_log();
-            write_log(log);
+            if (trunc_log()) {
+                write_log(log);
+            }
         }
         return;
     }

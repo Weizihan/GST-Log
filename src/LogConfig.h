@@ -9,11 +9,17 @@ struct LogExtraConfig {
     virtual ~LogExtraConfig() = default;
 };
 
+enum class LoggerType {
+    Console,
+    File,
+    AsyncFile
+};
+
 struct LogConfig {
 
     std::string _logger_name = "";
 
-    std::string _log_type = "file";
+    LoggerType _logger_type = LoggerType::File;
 
     LOG_LEVEL _log_level = LOG_LEVEL::LEVEL_FATAL;
 

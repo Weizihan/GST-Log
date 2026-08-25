@@ -1,6 +1,7 @@
 #include "FileLogger.h"
 
 #include <chrono>
+#include <cstdio>
 #include <ctime>
 #include <iomanip>
 #include <sstream>
@@ -28,12 +29,39 @@ static std::string current_datetime_str() {
     return buf;
 }
 
+static bool next_rotation_path(
+    const std::filesystem::path& log_path,
+    std::filesystem::path& result) {
+    const std::string timestamp = current_datetime_str();
+    const std::string stem = log_path.stem().string() + "_" + timestamp;
+    const std::string extension = log_path.extension().string();
+    std::filesystem::path candidate =
+        log_path.parent_path() / (stem + extension);
+    std::error_code ec;
+    for (std::size_t sequence = 1;; ++sequence) {
+        const bool candidate_exists = std::filesystem::exists(candidate, ec);
+        if (ec) {
+            return false;
+        }
+        if (!candidate_exists) {
+            result = std::move(candidate);
+            return true;
+        }
+        candidate = log_path.parent_path() /
+            (stem + "_" + std::to_string(sequence) + extension);
+    }
+}
+
 FileLogger::~FileLogger() {
+    std::lock_guard<std::mutex> shutdown_lock(_shutdown_mutex);
     _begin = false;
+    std::lock_guard<std::timed_mutex> lock(_mutex);
+    _accepting = false;
     if (_log_stream.is_open()) {
         _log_stream.flush();
         _log_stream.close();
     }
+    _shutdown_complete = true;
 }
 
 bool FileLogger::init(const LogConfig& config) {
@@ -63,80 +91,240 @@ bool FileLogger::init(const LogConfig& config) {
     }
 
     _current_date = current_date_str();
+    _accepting = true;
+    _shutdown_complete = false;
     _begin = true;
     return true;
 }
 
 bool FileLogger::trunc_log() {
+    std::lock_guard<std::timed_mutex> lock(_mutex);
+    try {
+        const bool success = trunc_log_unlocked();
+        if (!success) {
+            report_degraded_unlocked();
+        }
+        return success;
+    } catch (...) {
+        report_degraded_unlocked();
+        return false;
+    }
+}
+
+bool FileLogger::trunc_log_unlocked() {
     // 文件被外部删除时重新创建
-    if (!std::filesystem::exists(_log_path)) {
+    std::error_code ec;
+    const bool log_exists = std::filesystem::exists(_log_path, ec);
+    if (ec) {
+        return false;
+    }
+
+    if (!log_exists || !_log_stream.is_open() || !_log_stream.good()) {
         _log_stream.close();
-        std::error_code ec;
+        _log_stream.clear();
         const auto parent = _log_path.parent_path();
         if (!parent.empty()) {
             std::filesystem::create_directories(parent, ec);
+            if (ec) {
+                return false;
+            }
         }
-        _log_stream.open(_log_path, std::ios::out | std::ios::trunc | std::ios::binary);
-        return _log_stream.is_open();
+        _log_stream.open(_log_path, std::ios::out | std::ios::app | std::ios::binary);
+        return _log_stream.is_open() && _log_stream.good();
     }
 
     switch (_trunc_type) {
-    case TRUNC_TYPE_NONE:
-        return true;
+        case TRUNC_TYPE_NONE:
+            return true;
 
-    case TRUNC_TYPE_FILE_SZIE: {
-        std::error_code ec;
-        auto sz = std::filesystem::file_size(_log_path, ec);
-        if (!ec && sz >= static_cast<uintmax_t>(_trunc_threshold)) {
-            return rotate_file();
+        case TRUNC_TYPE_FILE_SZIE: {
+            auto sz = std::filesystem::file_size(_log_path, ec);
+            if (ec) {
+                return false;
+            }
+            if (sz >= static_cast<uintmax_t>(_trunc_threshold)) {
+                return rotate_file();
+            }
+            return true;
         }
-        return true;
-    }
 
-    case TRUNC_TYPE_SYS_TIME: {
-        std::string today = current_date_str();
-        if (today != _current_date) {
-            _current_date = today;
-            return rotate_file();
+        case TRUNC_TYPE_SYS_TIME: {
+            std::string today = current_date_str();
+            if (today != _current_date) {
+                _current_date = today;
+                return rotate_file();
+            }
+            return true;
         }
-        return true;
-    }
     }
     return true;
 }
 
 // 关闭当前文件，重命名为带时间戳的备份，再开新文件
 bool FileLogger::rotate_file() {
+    std::filesystem::path backup;
+    if (!next_rotation_path(_log_path, backup)) {
+        return false;
+    }
+
     _log_stream.flush();
     _log_stream.close();
 
-    std::filesystem::path backup =
-        _log_path.parent_path() /
-        (_log_path.stem().string() + "_" + current_datetime_str() +
-         _log_path.extension().string());
-
     std::error_code ec;
     std::filesystem::rename(_log_path, backup, ec);
+    bool backup_created = !ec;
     // rename 失败（如跨设备）时降级为复制+删除
     if (ec) {
         std::filesystem::copy_file(_log_path, backup,
             std::filesystem::copy_options::overwrite_existing, ec);
         if (!ec) {
+            backup_created = true;
             std::filesystem::remove(_log_path, ec);
         }
     }
 
+    if (!backup_created) {
+        // 备份失败时只能继续追加原文件。此处绝不能以 trunc 方式重开，
+        // 否则一次轮转错误会同时破坏现有日志和当前待写日志。
+        _log_stream.clear();
+        _log_stream.open(_log_path, std::ios::out | std::ios::app | std::ios::binary);
+        if (!_log_stream.is_open()) {
+            std::cerr << "rotate_file: backup failed and original file could not be reopened: "
+                      << _log_path << std::endl;
+            return false;
+        }
+        std::cerr << "rotate_file: backup failed; continuing with original file: "
+                  << _log_path << std::endl;
+        return true;
+    }
+
+    _log_stream.clear();
     _log_stream.open(_log_path, std::ios::out | std::ios::trunc | std::ios::binary);
     return _log_stream.is_open();
 }
 
 bool FileLogger::write_log(const buffer& log) {
+    std::lock_guard<std::timed_mutex> lock(_mutex);
+    if (!_accepting) {
+        return false;
+    }
+    try {
+        const bool success = write_log_unlocked(log);
+        if (success) {
+            report_recovered_unlocked();
+        } else {
+            report_degraded_unlocked();
+        }
+        return success;
+    } catch (...) {
+        report_degraded_unlocked();
+        return false;
+    }
+}
+
+bool FileLogger::write_log_unlocked(const buffer& log) {
     _log_stream.write(log.data(), static_cast<std::streamsize>(log.size()));
     if(!_log_stream.good()) {
         return false;
     }
     _log_stream.flush();
+    return _log_stream.good();
+}
+
+void FileLogger::log(LOG_LEVEL level, std::string& log, const char* file,
+                     int line, const char* func) {
+    if (!_begin || level < _level) {
+        return;
+    }
+
+    std::lock_guard<std::timed_mutex> lock(_mutex);
+    if (!_accepting) {
+        return;
+    }
+    try {
+        if (!_format.format(level, log, file, line, func)) {
+            return;
+        }
+        if (!trunc_log_unlocked() || !write_log_unlocked(log)) {
+            report_degraded_unlocked();
+            return;
+        }
+        report_recovered_unlocked();
+    } catch (...) {
+        report_degraded_unlocked();
+    }
+}
+
+bool FileLogger::flush(std::chrono::milliseconds timeout) {
+    const auto non_negative_timeout =
+        timeout < std::chrono::milliseconds::zero()
+            ? std::chrono::milliseconds::zero()
+            : timeout;
+    std::unique_lock<std::timed_mutex> lock(_mutex, std::defer_lock);
+    if (!lock.try_lock_until(
+            std::chrono::steady_clock::now() + non_negative_timeout)) {
+        return false;
+    }
+    if (_shutdown_complete) {
+        return true;
+    }
+    if (!_log_stream.good() && !trunc_log_unlocked()) {
+        report_degraded_unlocked();
+        return false;
+    }
+    _log_stream.flush();
+    const bool success = _log_stream.good();
+    if (success) {
+        report_recovered_unlocked();
+    } else {
+        report_degraded_unlocked();
+    }
+    return success;
+}
+
+bool FileLogger::shutdown(std::chrono::milliseconds timeout) {
+    std::lock_guard<std::mutex> shutdown_lock(_shutdown_mutex);
+    const auto non_negative_timeout =
+        timeout < std::chrono::milliseconds::zero()
+            ? std::chrono::milliseconds::zero()
+            : timeout;
+    const auto deadline = std::chrono::steady_clock::now() + non_negative_timeout;
+    _begin = false;
+    _accepting = false;
+
+    std::unique_lock<std::timed_mutex> lock(_mutex, std::defer_lock);
+    if (!lock.try_lock_until(deadline)) {
+        return false;
+    }
+    if (_shutdown_complete) {
+        return true;
+    }
+    if (!_log_stream.good() && !trunc_log_unlocked()) {
+        report_degraded_unlocked();
+        return false;
+    }
+    _log_stream.flush();
+    if (!_log_stream.good()) {
+        report_degraded_unlocked();
+        return false;
+    }
+    _log_stream.close();
+    _shutdown_complete = true;
     return true;
+}
+
+void FileLogger::report_degraded_unlocked() noexcept {
+    if (!_degraded) {
+        std::fputs("GST_log: file logger degraded; retrying on next log\n", stderr);
+    }
+    _degraded = true;
+}
+
+void FileLogger::report_recovered_unlocked() noexcept {
+    if (_degraded) {
+        std::fputs("GST_log: file logger recovered\n", stderr);
+    }
+    _degraded = false;
 }
 
 
