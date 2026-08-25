@@ -121,36 +121,53 @@ cmake --build build -j
 
 示例程序默认不构建，需要显式设置 `BUILD_EXAMPLE=ON`。
 
-## 安装和 CMake 接入
+## 使用方式
 
-安装到自定义目录：
+### 1. 安装后使用
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
-cmake --install build --prefix /path/to/gst-install
+cmake --install build --prefix /path/to/gst-log
 ```
 
-下游工程：
+代码中包含公开头文件：
 
-```cmake
-find_package(GST_log CONFIG REQUIRED)
-
-add_executable(my_app main.cpp)
-target_link_libraries(my_app PRIVATE GST::Log)
+```cpp
+#include "GstLog.h"
 ```
 
-如果安装在非系统目录，可以在配置下游工程时指定：
+编译时链接安装后的 `GST_Log` 静态库：
 
 ```bash
-cmake -S . -B build \
-    -DCMAKE_PREFIX_PATH=/path/to/gst-install
+c++ -std=c++17 main.cpp \
+    -I/path/to/gst-log/include \
+    -I/path/to/gst-log/include/src \
+    -I/path/to/gst-log/include/src/logger \
+    -L/path/to/gst-log/lib \
+    -lGST_Log -pthread
 ```
 
-同一个源码树中也可以直接使用：
+### 2. 使用源代码
+
+将 GST_log 源码放入工程后使用：
 
 ```cmake
 add_subdirectory(path/to/GST_log)
+target_link_libraries(my_app PRIVATE GST::Log)
+```
+
+### 3. 使用 GitHub 链接
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(
+    GST_log
+    GIT_REPOSITORY https://github.com/Weizihan/GST-Log.git
+    GIT_TAG master
+)
+FetchContent_MakeAvailable(GST_log)
+
 target_link_libraries(my_app PRIVATE GST::Log)
 ```
 
@@ -368,8 +385,6 @@ GST_log/
 ├── CMakeLists.txt
 ├── GstLog.h                         # 用户入口和日志宏
 ├── GstLog.cpp                       # 全局 facade 访问入口
-├── cmake/
-│   └── GST_logConfig.cmake.in       # find_package package 模板
 ├── example/
 │   └── Async_example.cpp
 ├── src/
