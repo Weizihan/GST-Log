@@ -1,78 +1,93 @@
 #pragma once
+#include <atomic>
+#include <cstdio>
+#include <exception>
+#include <memory>
 #include <string>
 #include <vector>
-#include <memory>
-#include <iostream>
-#include <atomic>
-#include <chrono>
-
 #include "LogConfig.h"
 #include "Marco.h"
 
-namespace GST{
-namespace LOG{
-
+namespace GST {
+namespace LOG {
 using buffer = std::string;
 using bufferptr = std::unique_ptr<buffer>;
 using buffervecptr = std::unique_ptr<std::vector<buffer>>;
-using std::vector;
-
-
 
 class Logger {
 public:
-    Logger(){};
-    
     virtual ~Logger() = default;
-    
-    virtual bool init(const GST::LOG::LogConfig& config) = 0; 
-
+    virtual bool init(const LogConfig& config) = 0;
     virtual bool write_log(const buffer& log) = 0;
-    
-    virtual bool trunc_log() = 0;
+    virtual bool flush() = 0;
+    virtual bool shutdown() = 0;
 
-    // Flushes every log accepted before the call's synchronization boundary.
-    // This only flushes userspace stream buffers to the operating system; it
-    // does not provide fsync-style power-loss durability.
-    virtual bool flush(std::chrono::milliseconds timeout) = 0;
-
-    // Stops accepting logs, drains every already accepted log, and releases
-    // backend resources. A timeout leaves the logger in Stopping so shutdown
-    // can be retried.
-    virtual bool shutdown(std::chrono::milliseconds timeout) = 0;
-
-    virtual void log(LOG_LEVEL level, std::string& log, const char* file,
-                int line, const char* func) {
-        if(!_begin) {
-            return;
+    virtual void log(LOG_LEVEL level, std::string& message, const char* file,
+                     int line, const char* func) final {
+        if (enabled(level) && !try_log(level, message, file, line, func)) {
+            std::fprintf(stderr, "GST_log: logger '%s' rejected a message\n", _name.c_str());
         }
-        if(level < _level) {
-            return;
-        }
-        if(_format.format(level, log, file, line, func)) {
-            if (trunc_log()) {
-                write_log(log);
-            }
-        }
-        return;
     }
 
-    inline const std::string& get_name() const { return _name;};
+    bool try_log(LOG_LEVEL level, const std::string& message, const char* file,
+                 int line, const char* func) {
+        if (!enabled(level)) {
+            return false;
+        }
+        try {
+            std::string formatted = message;
+            if (!_format.format(level, formatted, file, line, func)) {
+                return false;
+            }
+            decorate(level, formatted);
+            return write_log(formatted);
+        } catch (const std::exception& error) {
+            std::fprintf(stderr, "GST_log: logger '%s': %s\n", _name.c_str(), error.what());
+            return false;
+        }
+    }
+
+    bool enabled(LOG_LEVEL level) const {
+        return _begin && level >= _level && level <= LOG_LEVEL::LEVEL_FATAL;
+    }
+
+    inline const std::string& get_name() const {
+        return _name;
+    }
+
+    inline const std::string& get_target() const {
+        return _target;
+    }
 
 protected:
-    // logger的名称
+    virtual void decorate(LOG_LEVEL, std::string&) {}
+
+    bool configure(const LogConfig& config) {
+        if (_initialized || config._logger_name.empty() ||
+            config._log_level < LOG_LEVEL::LEVEL_DEBUG || config._log_level > LOG_LEVEL::LEVEL_FATAL ||
+            config._log_max_size < 0 || config._rotation_interval.count() < 0 ||
+            (config._natural_rotation != NaturalRotation::Legacy &&
+             config._natural_rotation != NaturalRotation::None &&
+             config._natural_rotation != NaturalRotation::Hourly &&
+             config._natural_rotation != NaturalRotation::Daily) ||
+            (config._log_encoding != "UTF-8" && config._log_encoding != "utf-8")) {
+            std::fputs("GST_log: invalid configuration (only UTF-8 byte output is supported)\n", stderr);
+            return false;
+        }
+        _name = config._logger_name;
+        _level = config._log_level;
+        _format = LogFormat(config._log_format);
+        return true;
+    }
+
+    void start() { _initialized = true; _begin = true; }
+
     std::string _name;
     LOG_LEVEL _level{LOG_LEVEL::LEVEL_INFO};
     LogFormat _format;
     std::string _target;
-    std::string _encoding;
-
-    // 日志截断相关参数
-    LOG_TRUNC_TYPE _trunc_type{TRUNC_TYPE_NONE};
-    int _trunc_threshold{0};
-
+    bool _initialized{false};
     std::atomic<bool> _begin{false};
 };
-
 }
 }

@@ -19,7 +19,9 @@ namespace LOG{
 class LogFormat{
 public:
     LogFormat() = default;
+
     LogFormat(const std::string& format):_pattern(format){};
+
     bool format(LOG_LEVEL level, std::string& log, const char* file,
                 int line, const char* func);
 private:
@@ -29,7 +31,6 @@ private:
     unsigned long int get_thread_id();
 
     std::string _pattern;
-    LOG_LEVEL _level;
 };
 
 }
