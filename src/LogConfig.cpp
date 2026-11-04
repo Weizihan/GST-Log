@@ -2,6 +2,12 @@
 #include <ctime>
 #include <cstdint>
 
+GST::LOG::LogExtraConfig::~LogExtraConfig() {
+}
+
+GST::LOG::LogConfig::~LogConfig() {
+}
+
 extern "C" std::time_t gst_log_wall_time() {
     return std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 }

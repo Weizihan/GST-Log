@@ -6,7 +6,7 @@ find_package(Threads REQUIRED)
 
 add_library(GST_Log STATIC
     GstLog.cpp src/GstLogger.cpp src/LogConfig.cpp src/LogFormat.cpp
-    src/logger/LogFile.cpp src/logger/FileLogger.cpp
+    src/logger/Logger.cpp src/logger/LogFile.cpp src/logger/FileLogger.cpp
     src/logger/AsyncFileLogger.cpp src/logger/ConsoleLogger.cpp)
 add_library(GST::Log ALIAS GST_Log)
 set_target_properties(GST_Log PROPERTIES EXPORT_NAME Log)

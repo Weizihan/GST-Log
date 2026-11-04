@@ -48,7 +48,21 @@ bool resolve_log_path(const LogConfig& config, std::filesystem::path& path) {
     return true;
 }
 
-LogFile::~LogFile() { close(); }
+LogFile::LogFile() {
+}
+
+LogFile::~LogFile() {
+    close();
+}
+
+bool LogFile::flush() const {
+    // write(2) 只保证字节已提交给操作系统。
+    return !_had_error;
+}
+
+const std::filesystem::path& LogFile::path() const {
+    return _path;
+}
 
 bool LogFile::error(const char* operation, int code) {
     _had_error = true;
@@ -128,7 +142,7 @@ bool LogFile::rotate(std::time_t now) {
     if (::rename(_path.c_str(), backup.c_str()) != 0) {
         return error("archive", errno);
     }
-    // Keep the old descriptor until the archive is safe and the new file opens.
+    // 在归档安全完成且新文件成功打开之前保留旧文件描述符。
     const int fresh = ::open(_path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_APPEND | O_CLOEXEC, 0644);
     if (fresh < 0) {
         return error("create active file", errno);

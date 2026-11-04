@@ -9,7 +9,12 @@
 
 using namespace GST::LOG;
 
-GstLogger::~GstLogger() { shutdown(); }
+GstLogger::GstLogger() {
+}
+
+GstLogger::~GstLogger() {
+    shutdown();
+}
 
 std::shared_ptr<GstLogger> GstLogger::get_Instance() {
     static std::shared_ptr<GstLogger> instance(new GstLogger());
@@ -18,7 +23,9 @@ std::shared_ptr<GstLogger> GstLogger::get_Instance() {
 
 bool GstLogger::init(const LogConfig& config) {
     std::string type = config._log_type;
-    std::transform(type.begin(), type.end(), type.begin(), [](unsigned char c) { return std::tolower(c); });
+    std::transform(type.begin(), type.end(), type.begin(), [](unsigned char c) {
+        return std::tolower(c);
+    });
     std::unique_ptr<Logger> logger;
     if (type == "file") {
         logger = std::make_unique<FileLogger>();
@@ -33,7 +40,7 @@ bool GstLogger::init(const LogConfig& config) {
         std::fputs("GST_log: unknown logger type\n", stderr);
         return false;
     }
-    // Configuration is a startup operation. Check identity before any filesystem side effect.
+    // 配置属于启动阶段操作，必须在产生任何文件系统副作用之前检查实例身份。
     std::lock_guard<std::mutex> lock(_loggers_mutex);
     if (_shutdown_started || config._logger_name.empty()) {
         std::fputs("GST_log: logger is not initialized\n", stderr);
@@ -165,7 +172,8 @@ bool GstLogger::dispatch(const std::vector<Logger*>& loggers, LOG_LEVEL level,
 void GstLogger::log(int index, LOG_LEVEL level, const char* file, int line,
                     const char* func, const char* format, ...) {
     const auto loggers = select(index, nullptr);
-    va_list args; va_start(args, format);
+    va_list args;
+    va_start(args, format);
     dispatch(loggers, level, file, line, func, format, args, true);
     va_end(args);
 }
@@ -173,7 +181,8 @@ void GstLogger::log(int index, LOG_LEVEL level, const char* file, int line,
 void GstLogger::log(const std::string& name, LOG_LEVEL level, const char* file, int line,
                     const char* func, const char* format, ...) {
     const auto loggers = select(0, &name);
-    va_list args; va_start(args, format);
+    va_list args;
+    va_start(args, format);
     dispatch(loggers, level, file, line, func, format, args, true);
     va_end(args);
 }
@@ -181,7 +190,8 @@ void GstLogger::log(const std::string& name, LOG_LEVEL level, const char* file, 
 bool GstLogger::try_log(int index, LOG_LEVEL level, const char* file, int line,
                         const char* func, const char* format, ...) {
     const auto loggers = select(index, nullptr);
-    va_list args; va_start(args, format);
+    va_list args;
+    va_start(args, format);
     const bool result = dispatch(loggers, level, file, line, func, format, args, false);
     va_end(args);
     return result;
@@ -190,7 +200,8 @@ bool GstLogger::try_log(int index, LOG_LEVEL level, const char* file, int line,
 bool GstLogger::try_log(const std::string& name, LOG_LEVEL level, const char* file, int line,
                         const char* func, const char* format, ...) {
     const auto loggers = select(0, &name);
-    va_list args; va_start(args, format);
+    va_list args;
+    va_start(args, format);
     const bool result = dispatch(loggers, level, file, line, func, format, args, false);
     va_end(args);
     return result;

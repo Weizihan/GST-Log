@@ -9,7 +9,7 @@ namespace GST {
 namespace LOG {
 class AsyncFileLogger : public Logger {
 public:
-    AsyncFileLogger() = default;
+    AsyncFileLogger();
     ~AsyncFileLogger() override;
     bool init(const LogConfig& config) override;
     bool write_log(const buffer& log) override;

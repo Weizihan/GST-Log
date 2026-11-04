@@ -1,7 +1,9 @@
 #include "ConsoleLogger.h"
 namespace GST {
 namespace LOG {
-ConsoleLogger::~ConsoleLogger() { shutdown(); }
+ConsoleLogger::~ConsoleLogger() {
+    shutdown();
+}
 
 bool ConsoleLogger::init(const LogConfig& config) {
     std::lock_guard<std::mutex> lock(_mutex);
@@ -50,13 +52,23 @@ void ConsoleLogger::decorate(LOG_LEVEL level, std::string& message) {
     }
     const char* color = "\033[0m";
     switch (level) {
-    case LOG_LEVEL::LEVEL_DEBUG: color = "\033[33m"; break;
-    case LOG_LEVEL::LEVEL_INFO: color = "\033[34m"; break;
-    case LOG_LEVEL::LEVEL_WARN: color = "\033[35m"; break;
-    case LOG_LEVEL::LEVEL_ERROR: color = "\033[31m"; break;
-    case LOG_LEVEL::LEVEL_FATAL: color = "\033[1;31m"; break;
+    case LOG_LEVEL::LEVEL_DEBUG:
+        color = "\033[33m";
+        break;
+    case LOG_LEVEL::LEVEL_INFO:
+        color = "\033[34m";
+        break;
+    case LOG_LEVEL::LEVEL_WARN:
+        color = "\033[35m";
+        break;
+    case LOG_LEVEL::LEVEL_ERROR:
+        color = "\033[31m";
+        break;
+    case LOG_LEVEL::LEVEL_FATAL:
+        color = "\033[1;31m";
+        break;
     }
-    // Keep the newline last, including for colored output.
+    // 即使启用彩色输出，也始终让换行符位于末尾。
     message.insert(0, color);
     message.insert(message.size() - 1, "\033[0m");
 }

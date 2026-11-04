@@ -10,9 +10,12 @@ int main(int argc, char** argv) {
     const auto root = std::filesystem::path(argv[1]);
     auto logger = GST::LOG::get_Instance();
     GST::LOG::LogConfig config;
-    config._logger_name = "service"; config._log_type = "async";
-    config._log_target = (root / "logs").string(); config._log_file_name = "service.log";
-    config._log_level = GST::LOG::LOG_LEVEL::LEVEL_INFO; config._log_format = "%S";
+    config._logger_name = "service";
+    config._log_type = "async";
+    config._log_target = (root / "logs").string();
+    config._log_file_name = "service.log";
+    config._log_level = GST::LOG::LOG_LEVEL::LEVEL_INFO;
+    config._log_format = "%S";
     config._natural_rotation = GST::LOG::NaturalRotation::Hourly;
     if (!logger->init(config)) {
         return 2;

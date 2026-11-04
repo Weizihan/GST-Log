@@ -1,7 +1,12 @@
 #include "AsyncFileLogger.h"
 namespace GST {
 namespace LOG {
-AsyncFileLogger::~AsyncFileLogger() { shutdown(); }
+AsyncFileLogger::AsyncFileLogger() {
+}
+
+AsyncFileLogger::~AsyncFileLogger() {
+    shutdown();
+}
 
 bool AsyncFileLogger::init(const LogConfig& config) {
     std::lock_guard<std::mutex> shutdown_lock(_shutdown_mutex);
@@ -25,7 +30,8 @@ bool AsyncFileLogger::init(const LogConfig& config) {
     {
         std::lock_guard<std::mutex> lock(_buffer_mutex);
         _worker_stopped = false;
-        _begin = true; // Publish the running state before the worker can execute.
+        // 必须在 worker 开始执行之前发布运行状态。
+        _begin = true;
     }
     try {
         _write_worker = std::thread(&AsyncFileLogger::thread_func, this);
@@ -78,7 +84,9 @@ void AsyncFileLogger::thread_func() noexcept {
             bool stop;
             {
                 std::unique_lock<std::mutex> lock(_buffer_mutex);
-                _cv.wait(lock, [this] { return !_begin || !_buffers.empty() || _current_records != 0; });
+                _cv.wait(lock, [this] {
+                    return !_begin || !_buffers.empty() || _current_records != 0;
+                });
                 publish_current_locked();
                 ready.swap(_buffers);
                 stop = !_begin;
@@ -129,7 +137,9 @@ bool AsyncFileLogger::flush() {
     std::unique_lock<std::mutex> lock(_buffer_mutex);
     const auto target = _accepted_bytes;
     _cv.notify_one();
-    _flush_cv.wait(lock, [this, target] { return _completed_bytes >= target || _worker_stopped; });
+    _flush_cv.wait(lock, [this, target] {
+        return _completed_bytes >= target || _worker_stopped;
+    });
     return _completed_bytes >= target && !_write_failed;
 }
 
@@ -137,7 +147,8 @@ bool AsyncFileLogger::shutdown() {
     std::lock_guard<std::mutex> shutdown_lock(_shutdown_mutex);
     {
         std::lock_guard<std::mutex> lock(_buffer_mutex);
-        _begin = false; // Same mutex as the wait predicate: no lost stop notification.
+        // 与等待谓词使用同一把互斥锁，避免丢失停止通知。
+        _begin = false;
     }
     _cv.notify_all();
     if (_write_worker.joinable()) {

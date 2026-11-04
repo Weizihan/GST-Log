@@ -5,7 +5,7 @@
 #include <string>
 #include "LogConfig.h"
 
-// Internal clock seams; tests replace them at link time, without runtime callbacks.
+// 内部时钟接缝由测试在链接时替换，无需运行期回调。
 extern "C" std::time_t gst_log_wall_time();
 extern "C" std::chrono::steady_clock::time_point gst_log_steady_time();
 
@@ -14,19 +14,19 @@ namespace LOG {
 namespace detail {
 bool resolve_log_path(const LogConfig& config, std::filesystem::path& path);
 
-// One backend owns this file. The caller serializes access.
+// 每个文件只归一个后端所有，调用方负责串行访问。
 class LogFile {
 public:
     ~LogFile();
-    LogFile() = default;
+    LogFile();
     LogFile(const LogFile&) = delete;
     LogFile& operator=(const LogFile&) = delete;
     bool open(const LogConfig& config);
     bool write(const std::string& message);
-    bool flush() const { return !_had_error; } // write(2) submits bytes to the OS.
+    bool flush() const;
 
     bool close();
-    const std::filesystem::path& path() const { return _path; }
+    const std::filesystem::path& path() const;
 
 private:
     bool reopen();

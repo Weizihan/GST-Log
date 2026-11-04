@@ -28,7 +28,7 @@ public:
     bool try_log(const std::string& name, LOG_LEVEL level, const char* file, int line,
                  const char* func, const char* format, ...);
 
-    // Preserve std::string format call sites without va_start on a reference parameter.
+    // 保留 std::string 格式参数调用，同时避免对引用参数使用 va_start。
     template<class Route, class Format, class... Args,
              std::enable_if_t<std::is_same<std::decay_t<Format>, std::string>::value, int> = 0>
     void log(const Route& route, LOG_LEVEL level, const char* file, int line,
@@ -44,7 +44,7 @@ public:
     }
 
 private:
-    GstLogger() = default;
+    GstLogger();
     GstLogger(const GstLogger&) = delete;
     GstLogger& operator=(const GstLogger&) = delete;
     std::vector<Logger*> select(int index, const std::string* name);

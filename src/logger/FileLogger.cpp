@@ -1,7 +1,9 @@
 #include "FileLogger.h"
 namespace GST {
 namespace LOG {
-FileLogger::~FileLogger() { shutdown(); }
+FileLogger::~FileLogger() {
+    shutdown();
+}
 
 bool FileLogger::init(const LogConfig& config) {
     std::lock_guard<std::mutex> lock(_mutex);

@@ -55,12 +55,12 @@ void print_report(
               << " | " << mb_per_sec << " MiB/sec\n";
 }
 
-} // namespace
+}
 
 int main(int argc, char** argv) {
-    // usage:
-    //   ./example_Async              (default: async)
-    //   ./example_Async file         (sync file logger)
+    // 使用方式：
+    //   ./example_Async              （默认使用异步日志）
+    //   ./example_Async file         （使用同步文件日志）
     //   ./example_Async async
     const std::string mode = (argc > 1) ? argv[1] : "async";
     if (mode != "file" && mode != "async") {
@@ -83,7 +83,8 @@ int main(int argc, char** argv) {
     cfg._log_type = (mode == "file") ? "file" : "async";
     cfg._natural_rotation = GST::LOG::NaturalRotation::None;
     cfg._log_level = GST::LOG::LOG_LEVEL::LEVEL_INFO;
-    cfg._log_format = "%S"; // keep one-line format for predictable size
+    // 保持单行格式，便于准确计算预期文件大小。
+    cfg._log_format = "%S";
     cfg._log_target = log_path;
     cfg._buffer_size = 64 * 1024;
     cfg._is_colorful_log = false;

@@ -10,8 +10,15 @@
 #include <iomanip>
 #include <sstream>
 
-namespace GST{
-namespace LOG{
+namespace GST {
+namespace LOG {
+LogFormat::LogFormat() {
+}
+
+LogFormat::LogFormat(const std::string& format)
+    : _pattern(format) {
+}
+
 bool LogFormat::format(LOG_LEVEL level, std::string& log, const char* file,
                     int line, const char* func) {
     std::string msg;
