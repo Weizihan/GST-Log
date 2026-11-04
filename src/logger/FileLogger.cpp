@@ -1,4 +1,7 @@
 #include "FileLogger.h"
+
+#include "LogConfig.h"
+
 namespace GST {
 namespace LOG {
 FileLogger::~FileLogger() {

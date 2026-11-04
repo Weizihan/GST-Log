@@ -1,4 +1,9 @@
 #include "ConsoleLogger.h"
+
+#include <cstdio>
+
+#include "LogConfig.h"
+
 namespace GST {
 namespace LOG {
 ConsoleLogger::~ConsoleLogger() {

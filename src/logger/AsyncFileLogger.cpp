@@ -1,4 +1,10 @@
 #include "AsyncFileLogger.h"
+
+#include <cstdio>
+#include <exception>
+
+#include "LogConfig.h"
+
 namespace GST {
 namespace LOG {
 AsyncFileLogger::AsyncFileLogger() {

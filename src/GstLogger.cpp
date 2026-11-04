@@ -1,11 +1,17 @@
 #include "GstLogger.h"
-#include "logger/AsyncFileLogger.h"
-#include "logger/FileLogger.h"
-#include "logger/ConsoleLogger.h"
-#include "logger/LogFile.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <exception>
+#include <filesystem>
+
+#include "LogConfig.h"
+#include "logger/AsyncFileLogger.h"
+#include "logger/ConsoleLogger.h"
+#include "logger/FileLogger.h"
+#include "logger/LogFile.h"
+#include "logger/Logger.h"
 
 using namespace GST::LOG;
 

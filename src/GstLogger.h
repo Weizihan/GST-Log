@@ -3,13 +3,16 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <vector>
 #include <type_traits>
-#include "logger/Logger.h"
-#include "LogConfig.h"
+#include <vector>
+
+#include "Marco.h"
 
 namespace GST {
 namespace LOG {
+class Logger;
+struct LogConfig;
+
 class GstLogger {
 public:
     ~GstLogger();

@@ -1,8 +1,11 @@
 #pragma once
+#include <cstddef>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
 #include <thread>
+#include <vector>
+
 #include "Logger.h"
 #include "LogFile.h"
 namespace GST {

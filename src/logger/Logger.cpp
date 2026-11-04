@@ -1,6 +1,9 @@
 #include "Logger.h"
+
 #include <cstdio>
 #include <exception>
+
+#include "LogConfig.h"
 
 namespace GST {
 namespace LOG {

@@ -3,11 +3,14 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "LogConfig.h"
+
+#include "LogFormat.h"
 #include "Marco.h"
 
 namespace GST {
 namespace LOG {
+struct LogConfig;
+
 using buffer = std::string;
 using bufferptr = std::unique_ptr<buffer>;
 using buffervecptr = std::unique_ptr<std::vector<buffer>>;

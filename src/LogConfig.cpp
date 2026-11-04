@@ -1,6 +1,6 @@
 #include "LogConfig.h"
+
 #include <ctime>
-#include <cstdint>
 
 GST::LOG::LogExtraConfig::~LogExtraConfig() {
 }

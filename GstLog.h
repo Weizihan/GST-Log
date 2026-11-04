@@ -1,5 +1,7 @@
 #pragma once
 #include <memory>
+
+#include "src/LogConfig.h"
 #include "src/Marco.h"
 #include "src/GstLogger.h"
 

@@ -1,8 +1,9 @@
 #pragma once
-#include <memory>
 #include <chrono>
 #include <cstddef>
-#include "LogFormat.h"
+#include <string>
+
+#include "Marco.h"
 
 namespace GST {
 namespace LOG {
@@ -39,14 +40,13 @@ struct LogConfig {
     NaturalRotation _natural_rotation = NaturalRotation::Legacy;
     std::chrono::seconds _rotation_interval{0};
 
-
     int _log_max_size = 0;
-    
+
     // 异步日志配置。
     int _buffer_size = 64 * 1024;
     std::size_t _max_pending_logs = 8192;
     std::size_t _max_pending_bytes = 8 * 1024 * 1024;
-    
+
     // 控制台日志配置。
     bool _is_colorful_log = false;
 

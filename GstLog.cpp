@@ -1,5 +1,4 @@
 #include "GstLog.h"
-#include "GstLogger.h"
 
 namespace GST {
 namespace LOG {

@@ -1,14 +1,11 @@
-#include "Logger.h"
 #include "LogFormat.h"
-#include <iostream>
-#include <libgen.h>
 
-#include <thread>
-#include <functional>
 #include <chrono>
 #include <ctime>
+#include <functional>
 #include <iomanip>
 #include <sstream>
+#include <thread>
 
 namespace GST {
 namespace LOG {
