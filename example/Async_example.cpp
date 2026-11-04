@@ -12,11 +12,16 @@
 namespace {
 
 std::atomic<uint64_t> g_log_total_count{0};
+std::atomic<uint64_t> g_log_rejected_count{0};
 
 void thread_log_task(const std::string& payload, uint64_t log_count_per_thread) {
     for (uint64_t i = 0; i < log_count_per_thread; ++i) {
-        INFO("%s", payload.c_str());
-        g_log_total_count.fetch_add(1, std::memory_order_relaxed);
+        if (GST::LOG::get_Instance()->try_log(-1, GST::LOG::LOG_LEVEL::LEVEL_INFO,
+                __FILE__, __LINE__, __func__, "%s", payload.c_str())) {
+            g_log_total_count.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            g_log_rejected_count.fetch_add(1, std::memory_order_relaxed);
+        }
     }
 }
 
@@ -26,11 +31,11 @@ void print_report(
     uint32_t thread_num,
     uint64_t log_count_per_thread,
     double elapsed_sec,
-    uint64_t total_logs) {
+    uint64_t total_logs, uint64_t initial_size, std::size_t payload_size) {
     const uint64_t actual_size = std::filesystem::exists(log_path)
         ? std::filesystem::file_size(log_path)
         : 0;
-    const uint64_t expected_size = total_logs * 66; // 64 payload + " " + "\n"
+    const uint64_t expected_size = initial_size + total_logs * (payload_size + 1);
 
     const double mb = static_cast<double>(actual_size) / (1024.0 * 1024.0);
     const double lines_per_sec = elapsed_sec > 0.0
@@ -50,32 +55,36 @@ void print_report(
               << " | " << mb_per_sec << " MiB/sec\n";
 }
 
-} // namespace
+}
 
 int main(int argc, char** argv) {
-    // usage:
-    //   ./example_Async              (default: async)
-    //   ./example_Async file         (sync file logger)
+    // 使用方式：
+    //   ./example_Async              （默认使用异步日志）
+    //   ./example_Async file         （使用同步文件日志）
     //   ./example_Async async
     const std::string mode = (argc > 1) ? argv[1] : "async";
-    const uint32_t thread_num = 50;
-    const uint64_t log_count_per_thread = 150000;
-    const std::string payload(1024, 'X');
+    if (mode != "file" && mode != "async") {
+        std::cerr << "usage: example_Async [file|async]\n";
+        return 1;
+    }
+    const uint32_t thread_num = 4;
+    const uint64_t log_count_per_thread = 1000;
+    const std::string payload(64, 'X');
     const std::string log_path = (mode == "file")
         ? "output/file_bench.log"
         : "output/async_bench.log";
 
     std::error_code ec;
     std::filesystem::create_directories("output", ec);
-    std::filesystem::remove(log_path, ec);
+
 
     GST::LOG::LogConfig cfg;
     cfg._logger_name = "benchmark";
-    cfg._logger_type = (mode == "file")
-        ? GST::LOG::LoggerType::File
-        : GST::LOG::LoggerType::AsyncFile;
+    cfg._log_type = (mode == "file") ? "file" : "async";
+    cfg._natural_rotation = GST::LOG::NaturalRotation::None;
     cfg._log_level = GST::LOG::LOG_LEVEL::LEVEL_INFO;
-    cfg._log_format = "%S"; // keep one-line format for predictable size
+    // 保持单行格式，便于准确计算预期文件大小。
+    cfg._log_format = "%S";
     cfg._log_target = log_path;
     cfg._buffer_size = 64 * 1024;
     cfg._is_colorful_log = false;
@@ -85,6 +94,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    const auto initial_size = std::filesystem::file_size(log_path);
     auto start = std::chrono::high_resolution_clock::now();
     std::vector<std::thread> threads;
     threads.reserve(thread_num);
@@ -94,14 +104,15 @@ int main(int argc, char** argv) {
     for (auto& t : threads) {
         t.join();
     }
-    auto end = std::chrono::high_resolution_clock::now();
-
-    if (mode != "file") {
-        std::this_thread::sleep_for(std::chrono::seconds(2));
+    if (!GST::LOG::get_Instance()->shutdown()) {
+        std::cerr << "logger shutdown failed\n";
+        return 2;
     }
+    auto end = std::chrono::high_resolution_clock::now();
 
     const double elapsed_sec = std::chrono::duration<double>(end - start).count();
     const uint64_t total_logs = g_log_total_count.load(std::memory_order_relaxed);
-    print_report(mode, log_path, thread_num, log_count_per_thread, elapsed_sec, total_logs);
-    return 0;
+    print_report(mode, log_path, thread_num, log_count_per_thread, elapsed_sec, total_logs, initial_size, payload.size());
+    std::cout << "rejected logs: " << g_log_rejected_count.load() << "\n";
+    return g_log_rejected_count.load() == 0 ? 0 : 3;
 }

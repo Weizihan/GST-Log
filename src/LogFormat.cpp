@@ -1,16 +1,21 @@
-#include "Logger.h"
 #include "LogFormat.h"
-#include <iostream>
-#include <libgen.h>
 
-#include <thread>
-#include <functional>
 #include <chrono>
-#include <cstdio>
 #include <ctime>
+#include <functional>
+#include <iomanip>
+#include <sstream>
+#include <thread>
 
-namespace GST{
-namespace LOG{
+namespace GST {
+namespace LOG {
+LogFormat::LogFormat() {
+}
+
+LogFormat::LogFormat(const std::string& format)
+    : _pattern(format) {
+}
+
 bool LogFormat::format(LOG_LEVEL level, std::string& log, const char* file,
                     int line, const char* func) {
     std::string msg;
@@ -22,34 +27,27 @@ bool LogFormat::format(LOG_LEVEL level, std::string& log, const char* file,
                 switch (_pattern[pos + 1]) {
                     case 'P' :
                         log += std::to_string(get_thread_id());
-                        log.append(" ");
                         break;
                     case 'L' :
                         log += get_loglevelstr(level);
-                        log.append(" ");
                         break;
                     case 'T':
                         log += get_curtime();
-                        log.append(" ");
                         break;
                     case 'F':
-                        log += std::string(func);
-                        log.append(" ");
+                        log += std::string(func ? func : "");
                         break;
                     case 'I':
                         log += std::to_string(line);
-                        log.append(" ");
                         break;
                     case 'S':
                         log += msg;
-                        log.append(" ");
                         break;
                     case 'R':
-                        log += get_filepath(file);
-                        log.append(" ");
+                        log += get_filepath(file ? file : "");
                         break;
                     case '%':
-                        log.append("%");
+                        log += "%";
                         break;
                     default:
                         log.push_back('%');
@@ -66,7 +64,9 @@ bool LogFormat::format(LOG_LEVEL level, std::string& log, const char* file,
             ++pos;
         }
     }
-    log.push_back('\n');
+    if (log.empty() || log.back() != '\n') {
+        log.push_back('\n');
+    }
     return true;
 }
 
@@ -87,15 +87,10 @@ std::string LogFormat::get_curtime() {
     std::tm tm_now{};
     localtime_r(&now_time_t, &tm_now);
 
-    char timestamp[24]{};
-    const std::size_t date_length =
-        std::strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &tm_now);
-    if (date_length == 0) {
-        return {};
-    }
-    std::snprintf(timestamp + date_length, sizeof(timestamp) - date_length,
-                  ".%03lld", static_cast<long long>(ms.count()));
-    return timestamp;
+    std::ostringstream oss;
+    oss << std::put_time(&tm_now, "%Y-%m-%d %H:%M:%S")
+        << "." << std::setw(3) << std::setfill('0') << ms.count();
+    return oss.str();
 }
 
 std::string LogFormat::get_loglevelstr(GST::LOG::LOG_LEVEL level) {

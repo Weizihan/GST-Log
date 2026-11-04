@@ -3,23 +3,24 @@
 #include <string_view>
 #include "Marco.h"
 
-namespace GST{
-namespace LOG{
+namespace GST {
+namespace LOG {
 
 /*
-    format parrten
-    %P  :   thread_id
-    %L  ：  level
-    %T  ：  time
-    %F  :   func
-    %I  :   line
-    %S  :   log
-    %R  :   file
+    格式化占位符：
+    %P：线程 ID
+    %L：日志级别
+    %T：时间
+    %F：函数名
+    %I：行号
+    %S：日志消息
+    %R：源文件名
 */
-class LogFormat{
+class LogFormat {
 public:
-    LogFormat() = default;
-    LogFormat(const std::string& format):_pattern(format){};
+    LogFormat();
+    LogFormat(const std::string& format);
+
     bool format(LOG_LEVEL level, std::string& log, const char* file,
                 int line, const char* func);
 private:
@@ -29,7 +30,6 @@ private:
     unsigned long int get_thread_id();
 
     std::string _pattern;
-    LOG_LEVEL _level;
 };
 
 }

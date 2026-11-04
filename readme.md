@@ -1,400 +1,178 @@
 # GST_log
 
-面向 C++17 Linux 应用的轻量日志库，提供控制台、同步文件和异步文件三种后端，支持日志级别、格式化、文件轮转、并发写入以及可超时的 `flush` / `shutdown` 生命周期控制。
+面向 Linux / C++17 的独立静态日志库。保留 `GstLogger` 门面和 Console、File、AsyncFile 后端。
+文件后端采用追加写入；异步后端保持 FIFO 和单 worker，不依赖 EventLoop。
 
-GST_log 主要用于 GST 系列基础设施和服务端项目，也可以作为独立静态库接入其他 CMake 工程。
-
-## 特性
-
-- **三种日志后端**：彩色控制台、同步文件、单 worker 异步文件。
-- **统一调用入口**：应用配置一个进程级 `GstLogger`，通过日志宏按广播、索引或名称路由。
-- **并发日志写入**：多个业务线程可以同时写日志；同一个异步后端按 accepted 顺序写入文件。
-- **异步批处理**：buffer 满时立即发布，低流量下最多等待约 100ms 发布 partial buffer。
-- **生命周期控制**：`flush(timeout)` 建立同步边界，`shutdown(timeout)` 停止入口并排空已接受日志。
-- **文件轮转保护**：支持按日期或文件大小轮转；备份失败时保留并继续追加原文件。
-- **运行期故障恢复**：文件暂时不可用时不向业务线程传播异常；条件恢复后复用同一个 Logger 继续写入。
-- **故障诊断**：后端进入 degraded 和 recovered 状态时通过 `stderr` 报告，避免递归进入日志系统。
-
-## 适用场景
-
-GST_log 适合作为以下组件的基础日志设施：
-
-- Linux 服务端和后台进程；
-- `GST_EventLoop`、`GST_net` 等基础库；
-- 需要多个业务线程写入同一日志文件的应用；
-- 希望业务日志调用与文件 I/O 解耦的应用。
-
-审计、交易等要求日志在机器断电后仍然可靠保存的场景，不应只依赖当前 `flush()`。
-
-## 架构
-
-```text
-                        application threads
-                  INFO / WARN / ERROR / DEBUG
-                                │
-                                ▼
-┌──────────────────────────────────────────────────────────┐
-│ GstLogger                                                │
-│  ├─ logger registry                                      │
-│  ├─ index / name / broadcast routing                     │
-│  └─ process-level flush and shutdown                     │
-└─────────────────────────────┬────────────────────────────┘
-                              │
-          ┌───────────────────┼───────────────────┐
-          ▼                   ▼                   ▼
-┌─────────────────┐ ┌─────────────────┐ ┌──────────────────────┐
-│ ConsoleLogger   │ │ FileLogger      │ │ AsyncFileLogger      │
-│ format + stdout │ │ format + write  │ │ format + shared      │
-│ optional color  │ │ caller thread   │ │ current buffer       │
-└─────────────────┘ └─────────────────┘ └──────────┬───────────┘
-                                                   │ full / 100ms /
-                                                   │ flush / shutdown
-                                                   ▼
-                                        ┌──────────────────────┐
-                                        │ FIFO ready buffers   │
-                                        └──────────┬───────────┘
-                                                   ▼
-                                        ┌──────────────────────┐
-                                        │ single I/O worker    │
-                                        │ write / retry /      │
-                                        │ rotation / recovery  │
-                                        └──────────┬───────────┘
-                                                   ▼
-                                                log file
-```
-
-### 组件职责
-
-| 组件 | 职责 |
-|---|---|
-| `GstLogger` | 保存已配置的 backend，完成日志路由，并统一执行 `flush` 和 `shutdown`。 |
-| `Logger` | 所有日志后端的抽象接口，定义格式化、写入和生命周期操作。 |
-| `ConsoleLogger` | 在调用线程格式化并写入 `stdout`，可选彩色输出。 |
-| `FileLogger` | 在调用线程同步完成格式化、轮转检查、文件写入和 flush。 |
-| `AsyncFileLogger` | 业务线程只追加共享 buffer，单独的 I/O worker 负责批量写入、轮转和恢复。 |
-| `LogFormat` | 根据 pattern 生成最终日志行。 |
-
-## 异步写入模型
-
-同一个 `AsyncFileLogger` 使用一个共享 current buffer 和一个 FIFO ready 队列：
-
-```text
-producer append
-      │
-      ├─ current buffer 满 ────────────────┐
-      ├─ partial buffer 到达 100ms ───────┤
-      ├─ flush() 强制发布 ────────────────┤
-      └─ shutdown() 强制发布 ─────────────┤
-                                           ▼
-                                  FIFO ready buffers
-                                           │
-                                           ▼
-                                  single I/O worker
-```
-
-日志完整追加到 current buffer 后算作 **accepted**。文件顺序以 accepted 顺序为准，full buffer、定时 partial buffer 以及 `flush` / `shutdown` 发布的 buffer 不会互相越过。
-
-并发线程的时间戳在进入共享 buffer 前生成，因此文件中的时间戳不承诺严格递增。100ms 是健康后端和正常线程调度下的批处理等待目标，不是实时截止时间；积压、线程调度延迟或文件故障都可能推迟实际可见时间。
-
-## 环境要求
-
-- Linux；
-- 支持 C++17 的编译器；
-- CMake 3.16 或更高版本；
-- pthread。
-
-## 构建
+## 构建、测试和安装
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
+cmake -S . -B /tmp/gst-log-build -DCMAKE_BUILD_TYPE=Debug \
+    -DBUILD_EXAMPLE=ON -DGST_LOG_BUILD_TESTS=ON
+cmake --build /tmp/gst-log-build --parallel 2
+ctest --test-dir /tmp/gst-log-build --output-on-failure
+cmake --install /tmp/gst-log-build --prefix /path/to/gst-log
 ```
 
-构建示例程序：
+测试默认关闭。构建产物留在构建目录；CTest 包含安装后独立外部项目的编译、链接和运行。
+测试使用可控时间和写入屏障，不等待实际整点或随机 sleep。工具链要求 Linux、C++17、pthread；测试另外使用 GNU/LLVM 链接器的 `--wrap` 和系统动态链接接口，无第三方测试框架。
 
-```bash
-cmake -S . -B build \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_EXAMPLE=ON
-cmake --build build -j
-```
-
-示例程序默认不构建，需要显式设置 `BUILD_EXAMPLE=ON`。
-
-## 使用方式
-
-### 1. 安装后使用
-
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-cmake --install build --prefix /path/to/gst-log
-```
-
-代码中包含公开头文件：
-
-```cpp
-#include "GstLog.h"
-```
-
-编译时链接安装后的 `GST_Log` 静态库：
-
-```bash
-c++ -std=c++17 main.cpp \
-    -I/path/to/gst-log/include \
-    -I/path/to/gst-log/include/src \
-    -I/path/to/gst-log/include/src/logger \
-    -L/path/to/gst-log/lib \
-    -lGST_Log -pthread
-```
-
-### 2. 使用源代码
-
-将 GST_log 源码放入工程后使用：
+安装后的外部 CMake 工程：
 
 ```cmake
-add_subdirectory(path/to/GST_log)
+find_package(GSTLog CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE GST::Log)
 ```
 
-### 3. 使用 GitHub 链接
+配置时传入 `-DCMAKE_PREFIX_PATH=/path/to/gst-log`。源码嵌入方式：
 
 ```cmake
-include(FetchContent)
-FetchContent_Declare(
-    GST_log
-    GIT_REPOSITORY https://github.com/Weizihan/GST-Log.git
-    GIT_TAG master
-)
-FetchContent_MakeAvailable(GST_log)
-
+add_subdirectory(path/to/GST-Log)
 target_link_libraries(my_app PRIVATE GST::Log)
 ```
 
-## 快速开始
+实体构建目标为 `GST_Log`，静态库名为 `libGST_Log.a`；`GST::Log` 是统一的 CMake 使用入口。
 
-### 异步文件日志
+## 使用
 
 ```cpp
 #include "GstLog.h"
-
-#include <chrono>
 
 int main() {
     GST::LOG::LogConfig config;
     config._logger_name = "application";
-    config._logger_type = GST::LOG::LoggerType::AsyncFile;
+    config._log_type = "async";
+    config._log_target = "./logs/";
+    config._log_file_name = "application.log";
     config._log_level = GST::LOG::LOG_LEVEL::LEVEL_INFO;
-    config._log_format = "[%T][%L][%P] %S";
-    config._log_target = "logs/application.log";
-    config._buffer_size = 64 * 1024;
-    config._trunback_type = false;
+    config._log_format = "[%T][%L][%R:%I] %S";
+    config._natural_rotation = GST::LOG::NaturalRotation::Hourly;
     config._log_max_size = 10 * 1024 * 1024;
 
     auto logger = GST::LOG::get_Instance();
-    if (!logger->init(config)) {
-        return 1;
-    }
-
-    INFO_NAME("application", "server started, port=%d", 9000);
-    WARN_NAME("application", "queue usage=%d%%", 80);
-
-    // 应在所有日志生产者停止后调用。
-    if (!logger->shutdown(std::chrono::seconds(2))) {
-        return 2;
-    }
-    return 0;
+    if (!logger->init(config)) return 1;
+    INFO_NAME("application", "started, port=%d", 9000);
+    // 先停止所有日志生产者，再关闭日志系统。
+    return logger->shutdown() ? 0 : 2;
 }
 ```
 
-日志宏使用 `printf` 风格格式字符串。
+无参数 `init()` 创建名为 `default`、最低级别 DEBUG 的彩色控制台后端。
+初始化属于启动阶段操作。后端对象成功初始化一次后不能再次初始化；门面 shutdown 后不能重新开启。
+配置和销毁不得与直接后端对象的初始化并发。生产者可并发写入，flush 可与生产者并发，重复 shutdown 安全。
 
-### 默认控制台日志
+## 配置和路由
 
-无参数 `init()` 会创建名为 `default` 的控制台后端：
+- `_logger_name` 是唯一实例名称，支持多个同类型实例。
+- `_log_type` 接受 `console`、`file`、`async`，不区分大小写，默认值为 `file`；显式传入空值或未知类型时初始化失败。`_logger_name` 是用户自定义的实例名称，仅用于注册、查询和路由，不参与后端类型选择。
+- 同名配置和同一规范化文件路径上的第二个后端均被拒绝，在打开新文件之前检查。
+- `INFO/WARN/ERROR/DEBUG/FATAL` 广播；`*_NAME` 按名称路由；`*_INDEX` 按初始化顺序路由。
+- 仅索引 `-1` 表示广播，其他负数、越界索引和未知名称均被拒绝，不会意外广播。
+- 级别为 `DEBUG < INFO < WARN < ERROR < FATAL`，输出不低于配置级别的日志。
+- `_log_encoding` 目前只接受 `UTF-8` / `utf-8`，按原始字节输出，不做转码或 UTF-8 有效性检查。其他编码明确初始化失败。
+- 无效级别、负文件阈值/间隔、非正异步缓冲区或队列限制均被拒绝，不创建目标目录或文件。
 
-```cpp
-#include "GstLog.h"
+原来只有声明、没有定义的无参数 `add_logger()` / `delete_logger()` 已移除；仓库没有调用方。
+新增后端仍使用 `init(config)`。不支持运行时删除注册项，因而没有额外的对象回收机制。
 
-#include <chrono>
+## 路径规则
 
-int main() {
-    auto logger = GST::LOG::get_Instance();
-    if (!logger->init()) {
-        return 1;
-    }
+相对路径在初始化时以进程当前工作目录解析，之后 `chdir` 不改变该后端的目标。父目录自动创建，失败会报告路径和原因并返回 false。
 
-    INFO("hello %s", "GST_log");
-    logger->shutdown(std::chrono::seconds(1));
-    return 0;
-}
-```
+`_log_target` 是已有目录、以 `/` 结尾，或尚不存在且没有扩展名时，按目录处理，与 `_log_file_name` 拼接：
 
-## 日志路由
+- `/data` + `application.log` → `/data/application.log`（`/data` 不存在或本身是目录时）；
+- `./log/` + `application.log` → 当前工作目录下的 `log/application.log`；
+- `./log/application.log` → 直接作为完整文件路径。
 
-应用可以配置多个不同名称的 backend。名称用于标识实例，`LoggerType` 用于选择实现类型。
+已有的无扩展名普通文件仍作为文件使用。要新建无扩展名文件，请将目录写入 `_log_target`、文件名写入 `_log_file_name`。
+目录模式下文件名必须是单一路径组件，不能包含父路径。路径不能含 NUL，符号链接在初始化时解析。
+一个活动文件应由一个后端独占；不承诺跨进程、硬链接别名或外部工具同时轮转的协调能力。
 
-```cpp
-GST::LOG::LogConfig console;
-console._logger_name = "console";
-console._logger_type = GST::LOG::LoggerType::Console;
-console._log_level = GST::LOG::LOG_LEVEL::LEVEL_WARN;
-console._log_format = "[%L] %S";
-console._is_colorful_log = true;
+## 格式与消息
 
-GST::LOG::LogConfig file;
-file._logger_name = "file";
-file._logger_type = GST::LOG::LoggerType::AsyncFile;
-file._log_level = GST::LOG::LOG_LEVEL::LEVEL_DEBUG;
-file._log_format = "[%T][%L] %S";
-file._log_target = "logs/application.log";
+日志宏使用 printf 风格参数；格式与实参类型必须匹配。普通字符串格式参数仍可使用 `std::string`。
+所有后端共享基类的级别过滤、pattern 展开和换行流程，Console 只额外装饰颜色。
 
-auto logger = GST::LOG::get_Instance();
-logger->init(console);
-logger->init(file);
-```
-
-三种路由方式：
-
-```cpp
-INFO("broadcast to every configured logger");
-INFO_NAME("file", "write only to the named logger");
-INFO_INDEX(0, "write to logger index 0");
-```
-
-- 普通宏使用内部索引 `-1`，广播到全部 backend；
-- `*_NAME` 按唯一名称路由，推荐业务代码优先使用；
-- `*_INDEX` 按初始化顺序路由，适合索引稳定的内部场景；
-- 其他负数或越界 index 会被拒绝并报告到 `stderr`。
-
-## 日志级别
-
-级别从低到高：
-
-```text
-DEBUG < INFO < WARN < ERROR < FATAL
-```
-
-低于 backend 配置级别的日志会被过滤，不算作 accepted，也不进入 `flush` / `shutdown` 边界。
-
-## 格式化 pattern
-
-| Token | 内容 |
+| token | 内容 |
 |---|---|
-| `%P` | 当前线程 ID。 |
-| `%L` | 日志级别。 |
-| `%T` | 当前时间，精确到毫秒。 |
-| `%F` | 函数名。 |
-| `%I` | 源码行号。 |
-| `%S` | 用户消息。 |
-| `%R` | 源文件名。 |
-| `%%` | 字面量 `%`。 |
+| `%P` | 线程 ID 的哈希表示 |
+| `%L` | 级别 |
+| `%T` | 本地时间，含毫秒 |
+| `%F` | 函数名 |
+| `%I` | 行号 |
+| `%S` | 用户消息 |
+| `%R` | 源文件名 |
+| `%%` | 字面量 `%` |
 
-示例：
+未知 token 保留原文。token 不附加空格，分隔符完全由 pattern 控制；最终输出保证以换行结束，已有末尾换行不重复追加。
+消息内嵌 NUL 按长度保留，包括名称路由和控制台输出。广播各后端独立格式化，不会把前一个后端的结果作为下一个后端的消息。
 
-```cpp
-config._log_format = "[%T][%L][%P][%R:%I][%F] %S";
-```
+## 文件轮转和重启
 
-## 文件轮转
+`_natural_rotation` 支持：
 
-当前支持两种轮转方式：
+- `NaturalRotation::None`：关闭自然时间条件；
+- `NaturalRotation::Hourly`：本地自然整点；
+- `NaturalRotation::Daily`：本地每日零点；
+- `NaturalRotation::Legacy`（默认）：兼容 `_trunback_type`，true 为 Daily，false 为 None。
 
-### 按日期
+04:59 启动的小时轮转会在 05:00 后第一次实际写入前轮转，不从启动时间累计一小时。
+没有日志时不创建空归档，空活动文件直接复用。同步、异步使用同一个文件轮转实现；异步以 worker 实际写入时的时间段决定归属，不保证按消息生成时间拆分批次。
 
-```cpp
-config._trunback_type = true;
-```
+`_log_max_size > 0` 启用大小条件。大小与时间条件可同时启用，任一满足就轮转；同时满足只归档一次。
+大小在下一条同步记录或下一批异步数据写入前检查，因此是轮转阈值，不是硬文件大小上限。
 
-日期变化后，现有日志文件会被备份，并创建新的 active file。
+`_rotation_interval > 0` 额外启用固定间隔条件，使用单调时钟，自文件初始化、重开或上一次成功轮转开始计时。
+它可以与其他条件组合；进程重启后重新开始间隔计时，不恢复旧的间隔起点。
 
-### 按文件大小
+初始化只追加，不主动归档。非空已有文件的最后修改时间用于恢复自然时间段：仍在当前段则续写，跨段则在下一次写入前归档；已经达到大小阈值也在下一次写入前轮转。
+归档名包含时间戳，冲突时追加序号。先安全 rename，再创建新活动文件；归档失败保留原文件、报告错误并拒绝本次文件写入，后续写入可重试。新活动文件创建失败时旧日志仍在归档中。
+文件删除或替换后，后续写入尝试重新打开、创建目标。
 
-```cpp
-config._trunback_type = false;
-config._log_max_size = 10 * 1024 * 1024;
-```
+恢复不引入持久化状态。修改时间被外部工具改动、恢复旧备份、系统时钟/时区变化会影响判断；本地夏令时重复小时视为同一个小时标签。
+请在启动前设置时区。无需多进程协调的普通服务适用，需要严格审计时间分桶时应另行设计。
+归档没有自动清理策略，应由部署侧管理磁盘保留。
 
-当 active file 达到配置大小时执行轮转。备份名包含时间戳；同一秒发生多次轮转时会增加序号避免覆盖。
+## 异步接受、满载和生命周期
 
-如果 rename 和 copy 都失败，Logger 不会 truncate 原文件，而是重新以 append 模式打开原文件并继续写入。
+`_buffer_size` 是初始缓冲预留和批次目标大小，默认 64 KiB；不是总队列容量。
 
-## Flush 和 shutdown
+- `_max_pending_logs`：最大未完成记录数，默认 8192；
+- `_max_pending_bytes`：最大未完成格式化字节数，默认 8 MiB；
+- 两个限制都包含 current、ready 和正在 I/O 的数据；超出任一条件即拒绝新消息，不等待队列空位。
+- 单条消息超过批次目标仍可接受，但不能超过总字节限制。初始缓冲大小不能大于总字节限制。
+- 限制约束待处理有效载荷，内存另有容器、分配容量和已完成批次释放前的短暂开销，并非精确 RSS 上限。
 
-普通业务模块只需要写日志。`flush` 和 `shutdown` 是应用生命周期层使用的低频控制接口。
-
-### flush
-
-```cpp
-if (!logger->flush(std::chrono::seconds(2))) {
-    // timeout 内未完成边界前日志的写入。
-}
-```
-
-`flush(timeout)` 等待调用边界前已经 accepted 的日志写入，并把 C++ 流缓冲提交给操作系统。调用期间日志入口保持开放，边界之后的新日志不属于本次等待范围。
-
-### shutdown
+已有 `void log()` 和日志宏保留；拒绝的有效日志会向 stderr 报告。
+需要检查满载或关闭结果时使用兼容新增的 `try_log()`：
 
 ```cpp
-if (!logger->shutdown(std::chrono::seconds(2))) {
-    // 可以在文件后端恢复后重试。
-}
+bool accepted = GST::LOG::get_Instance()->try_log(
+    "application", GST::LOG::LOG_LEVEL::LEVEL_INFO,
+    __FILE__, __LINE__, __func__, "connection=%d", 42);
 ```
 
-`shutdown(timeout)` 的顺序是：
+单个异步后端返回 true 仅表示已接受，不表示已经写入磁盘。
+过滤、关闭、无效路由或队列满时返回 false。广播返回 true 表示至少一个符合级别的后端接受，且所有符合级别的后端均接受；false 时可能已有部分后端接受，不能盲目重试广播。
+`try_log` 的队列拒绝不写 stderr，适合调用者自行决定降级策略；原宏保留错误诊断，但 stderr 本身可能阻塞。
 
-```text
-停止接受新日志
-      ↓
-发布 current partial buffer
-      ↓
-排空 accepted 日志
-      ↓
-停止 worker 并关闭文件
-```
+`flush()` 和 `shutdown()` 不带超时：
 
-成功后新日志会被拒绝，重复 shutdown 是安全的。异步 shutdown 超时时会保留 pending，并允许调用者稍后重试。
+- flush 等待后端调用边界之前已接受数据的处理，生产者可以继续写；门面依次建立各后端边界，不承诺全局同一时刻快照。
+- shutdown 停止入口，尝试写出所有已接受记录，再 join worker、关闭文件。重复调用安全。
+- worker 即使在停止请求后才开始执行，也会排空已接受的 current 和 ready 数据。
+- I/O 失败的批次报告后释放，不自动重放；worker 继续处理后续数据并尝试重开文件。部分写入失败可能留下不完整记录。
+- 一旦发生输出/轮转失败，flush/shutdown 对该实例持续返回 false，避免后来的成功掩盖之前的数据损失；初始化失败后重试成功，不继承之前初始化阶段的错误。
+- 同步后端 try_log 的失败直接返回 false；异步已接受日志的后续 I/O 错误由 flush/shutdown 返回值和 stderr 报告。
+- 析构只做尽力收尾；需要确认结果时必须显式 shutdown。应先停止生产者，保证对象生命周期覆盖所有调用。
 
-应用应先停止 EventLoop、Server、业务线程等日志生产者，再调用日志系统的 shutdown。
+文件后端直接使用 Linux write(2)，处理 EINTR 和短写；flush 表示数据已提交给操作系统，不调用 fsync/fdatasync，不保证断电持久化。
+没有 I/O 取消能力，阻塞设备或文件系统可能延长 flush/shutdown；本版不提供硬实时截止时间。
+无用户回调、运行期删除后端或外部资源托管，内部锁不执行应用回调。
 
-## 文件故障与恢复语义
+## 兼容性说明
 
-同步 `FileLogger` 不保存失败日志。当前日志写入失败时，该条日志可能丢失；后续日志会尝试恢复同一个 Logger。
-
-`AsyncFileLogger` 会保留尚未确认完成的 batch：
-
-- 能确认没有开始写入时，恢复后直接重试；
-- 写入结果无法确认时，完整重放原 batch；
-- 重放前写入包含 `batch_id` 和 `attempt` 的 replay marker；
-- marker 写入失败时通过 `stderr` 报告，原 batch 仍然重试。
-
-异步故障恢复采用 **at-least-once** 语义：优先避免日志缺失，但不确定写入路径可能出现重复日志。
-
-当前不提供公开的 backend health、pending 数量或最后错误查询接口。后端首次故障和恢复各通过 `stderr` 报告一次。
-
-## 持久化边界
-
-当前 `flush()` 最终调用 `std::ofstream::flush()`，只保证数据从 C++ 用户态缓冲提交给操作系统，不调用 `fsync` 或 `fdatasync`。
-
-因此当前版本不承诺机器断电后的日志持久化。需要 durable log 的应用，应等待未来单独设计的持久化接口，或自行采用具备相应保证的存储方案。
-
-## 目录结构
-
-```text
-GST_log/
-├── CMakeLists.txt
-├── GstLog.h                         # 用户入口和日志宏
-├── GstLog.cpp                       # 全局 facade 访问入口
-├── example/
-│   └── Async_example.cpp
-├── src/
-│   ├── GstLogger.h/.cpp             # backend registry、路由和生命周期
-│   ├── LogConfig.h/.cpp             # backend 配置
-│   ├── LogFormat.h/.cpp             # pattern 格式化
-│   ├── Marco.h                      # 日志级别和公共枚举
-│   └── logger/
-│       ├── Logger.h                 # backend 抽象接口
-│       ├── ConsoleLogger.h/.cpp
-│       ├── FileLogger.h/.cpp
-│       └── AsyncFileLogger.h/.cpp
-```
+保留原日志宏、门面、`GST_Log` 目标和三个后端的职责划分。新增 try_log / flush / shutdown。
+日志格式去掉隐式空格，过滤方向修正为最低级别语义，非法路由不再广播，因此输出行为会按上述规则变化。
+可变参数主入口改用 `const char*` 格式，避免把引用参数用于 va_start；std::string 调用通过模板适配保留，旧函数指针类型需调整。
+自定义后端需实现 flush/shutdown，不能覆盖公共 log 流程，输出放在 write_log；这些是统一处理和生命周期所需的接口调整。

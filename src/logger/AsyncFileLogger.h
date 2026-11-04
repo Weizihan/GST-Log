@@ -1,79 +1,47 @@
 #pragma once
-
 #include <cstddef>
-#include <cstdint>
-#include <thread>
 #include <condition_variable>
-#include <filesystem>
-#include <fstream>
+#include <cstdint>
+#include <mutex>
+#include <thread>
+#include <vector>
 
 #include "Logger.h"
+#include "LogFile.h"
 namespace GST {
-
 namespace LOG {
-
-class AsyncFileLogger : public Logger{
+class AsyncFileLogger : public Logger {
 public:
     AsyncFileLogger();
     ~AsyncFileLogger() override;
     bool init(const LogConfig& config) override;
-
     bool write_log(const buffer& log) override;
-    bool trunc_log() override;
-    bool flush(std::chrono::milliseconds timeout) override;
-    bool shutdown(std::chrono::milliseconds timeout) override;
+    bool flush() override;
+    bool shutdown() override;
 private:
-    enum class WriteResult {
-        Success,
-        NotWritten,
-        OutcomeUnknown
-    };
-
-    struct PendingBatch {
+    struct Batch {
         buffer data;
-        std::uint64_t batch_id{0};
-        std::uint64_t attempt{1};
-        bool replay_required{false};
-        bool marker_attempted{false};
+        std::size_t records;
     };
-
-    void thread_func() noexcept;
-    void worker_loop(bool& degraded);
-    WriteResult write_pending(PendingBatch& pending);
-    bool write_replay_marker(PendingBatch& pending) noexcept;
-    void mark_outcome_unknown(PendingBatch& pending) noexcept;
-    void report_discarded_pending(std::size_t bytes) noexcept;
-    bufferptr take_empty_buffer_locked();
     void publish_current_locked();
-    void recycle_buffer(buffer&& reusable);
-    bool flush_until(std::chrono::steady_clock::time_point deadline);
-    void stop_worker_best_effort() noexcept;
-    bool file_trunc();   // 在 worker 线程内执行实际的轮转检查
-    bool rotate_file();  // 轮转：rename + 重开文件
-
-    std::filesystem::path _log_path;
-    std::ofstream _log_stream;
+    void thread_func() noexcept;
+    detail::LogFile _file;
     std::thread _write_worker;
+    std::mutex _shutdown_mutex;
+    std::mutex _buffer_mutex;
     std::condition_variable _cv;
     std::condition_variable _flush_cv;
-    std::mutex _buffer_mutex;
-    std::mutex _shutdown_mutex;
-    buffervecptr _buffers;
-    bufferptr _current_buffer;
-    bufferptr _next_buffer;
+    std::vector<Batch> _buffers;
+    buffer _current_buffer;
+    std::size_t _current_records{0};
     std::size_t _buffer_size{64 * 1024};
+    std::size_t _max_pending_logs{8192};
+    std::size_t _max_pending_bytes{8 * 1024 * 1024};
+    std::size_t _pending_records{0};
     std::uint64_t _accepted_bytes{0};
-    std::uint64_t _flushed_bytes{0};
-    std::uint64_t _next_batch_id{0};
-    std::chrono::steady_clock::time_point _partial_flush_deadline{};
-    bool _partial_flush_scheduled{false};
-    std::atomic<bool> _accepting{false};
+    std::uint64_t _completed_bytes{0};
     bool _worker_stopped{true};
-    bool _shutdown_complete{false};
-    std::atomic<bool> _worker_running{false};
-    std::string _current_date;  // for TRUNC_TYPE_SYS_TIME
-    LogFormat _replay_format;
+    bool _write_failed{false};
 };
-
 }
 }
